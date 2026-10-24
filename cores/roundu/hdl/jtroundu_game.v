@@ -7,7 +7,8 @@ module jtroundu_game(
 );
 
 reg [7:0] reset_count=0;
-wire game_rst = rst || !(&reset_count);
+wire tx_initialized;
+wire game_rst = rst || !tx_initialized || !(&reset_count);
 wire [15:0] control;
 wire sub_irq_set;
 wire [9:0] text_scroll_y;
@@ -26,6 +27,10 @@ wire [7:0] stick;
 wire [16:0] tx_gfxram_addr, tx_gfx_addr;
 wire [7:0] tx_gfxram_din, tx_gfxram_dout, tx_gfx_data;
 wire tx_gfxram_we, tx_gfxram_cs, tx_gfxram_ok, tx_gfx_cs, tx_gfx_ok;
+wire [16:0] bg_gfxram_addr, bg_gfx_addr;
+wire [7:0] bg_gfxram_din, bg_gfxram_dout, bg_gfx_data;
+wire bg_gfxram_we, bg_gfxram_cs, bg_gfxram_ok, bg_line_start;
+wire [8:0] bg_v;
 wire       gas_n, brake_n;
 
 jtroundu_ctrl u_ctrl (
@@ -120,6 +125,8 @@ jtroundu_main u_main (
     .bg_gfxram_din      ( bg_gfxram_din      ),
     .bg_gfxram_dout     ( bg_gfxram_dout     ),
     .bg_gfxram_we       ( bg_gfxram_we       ),
+    .bg_gfxram_cs       ( bg_gfxram_cs       ),
+    .bg_gfxram_ok       ( bg_gfxram_ok       ),
     .master_rom_addr    ( master_rom_addr    ),
     .master_rom_cs      ( master_rom_cs      ),
     .master_rom_data    ( master_rom_data    ),
@@ -130,26 +137,54 @@ jtroundu_main u_main (
     .v30_slave_rom_ok   ( v30_slave_rom_ok   )
 );
 
-jtroundu_txram u_txram (
-    .rst       ( game_rst        ),
-    .clk       ( clk             ),
-    .cpu_addr  ( tx_gfxram_addr   ),
-    .cpu_din   ( tx_gfxram_din    ),
-    .cpu_dout  ( tx_gfxram_dout   ),
-    .cpu_cs    ( tx_gfxram_cs     ),
-    .cpu_we    ( tx_gfxram_we     ),
-    .cpu_ok    ( tx_gfxram_ok     ),
-    .gfx_addr  ( tx_gfx_addr      ),
-    .gfx_cs    ( tx_gfx_cs        ),
-    .gfx_data  ( tx_gfx_data      ),
-    .gfx_ok    ( tx_gfx_ok        ),
-    .ram_addr  ( tx_sdram_addr    ),
-    .ram_din   ( tx_sdram_din     ),
-    .ram_data  ( tx_sdram_data    ),
-    .ram_cs    ( tx_sdram_cs      ),
-    .ram_we    ( tx_sdram_we      ),
-    .ram_dsn   ( tx_sdram_dsn     ),
-    .ram_ok    ( tx_sdram_ok      )
+jtroundu_txram #(
+    .INIT ( 1 )
+) u_txram (
+    .rst         ( rst            ),
+    .clk         ( clk            ),
+    .cpu_addr    ( tx_gfxram_addr ),
+    .cpu_din     ( tx_gfxram_din  ),
+    .cpu_dout    ( tx_gfxram_dout ),
+    .cpu_cs      ( tx_gfxram_cs   ),
+    .cpu_we      ( tx_gfxram_we   ),
+    .cpu_ok      ( tx_gfxram_ok   ),
+    .gfx_addr    ( tx_gfx_addr    ),
+    .gfx_cs      ( tx_gfx_cs      ),
+    .gfx_data    ( tx_gfx_data    ),
+    .gfx_ok      ( tx_gfx_ok      ),
+    .ram_addr    ( tx_sdram_addr  ),
+    .ram_din     ( tx_sdram_din   ),
+    .ram_data    ( tx_sdram_data  ),
+    .ram_cs      ( tx_sdram_cs    ),
+    .ram_we      ( tx_sdram_we    ),
+    .ram_dsn     ( tx_sdram_dsn   ),
+    .ram_ok      ( tx_sdram_ok    ),
+    .initialized ( tx_initialized )
+);
+
+jtroundu_bgram u_bgram (
+    .rst        ( game_rst       ),
+    .clk        ( clk            ),
+    .cpu_addr   ( bg_gfxram_addr ),
+    .cpu_din    ( bg_gfxram_din  ),
+    .cpu_dout   ( bg_gfxram_dout ),
+    .cpu_cs     ( bg_gfxram_cs   ),
+    .cpu_we     ( bg_gfxram_we   ),
+    .cpu_ok     ( bg_gfxram_ok   ),
+    .gfx_addr   ( bg_gfx_addr    ),
+    .gfx_data   ( bg_gfx_data    ),
+    .line_start ( bg_line_start  ),
+    .v          ( bg_v           ),
+    .back_x     ( bg_back_x      ),
+    .scroll_x   ( bg_scroll_x    ),
+    .scroll_y   ( bg_scroll_y    ),
+    .ram_addr   ( bg_sdram_addr  ),
+    .ram_din    ( bg_sdram_din   ),
+    .ram_data   ( bg_sdram_data  ),
+    .ram_cs     ( bg_sdram_cs    ),
+    .ram_we     ( bg_sdram_we    ),
+    .ram_dsn    ( bg_sdram_dsn   ),
+    .ram_ok     ( bg_sdram_ok    )
 );
 
 jtroundu_sub u_sub (
@@ -254,6 +289,8 @@ jtroundu_video u_video (
     .road_color_data    ( road_color_data    ),
     .bg_gfx_addr        ( bg_gfx_addr        ),
     .bg_gfx_data        ( bg_gfx_data        ),
+    .bg_line_start      ( bg_line_start      ),
+    .bg_v               ( bg_v               ),
     .objram_addr        ( objram_addr        ),
     .objram_data        ( objram_data        ),
     .obj_ctrl_addr      ( obj_ctrl_addr      ),

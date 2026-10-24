@@ -5,6 +5,7 @@
 params:
   - { name: SLAVE_OFFSET, value: "`SLAVE_START >> 1" }
   - { name: OKI_OFFSET, value: "(`OKI_START-`JTFRAME_BA3_START) >> 1" }
+  - { name: TX_OFFSET, value: "0x60000 >> 1" }
 
 clocks:
   clk:
@@ -41,13 +42,19 @@ sdram:
         - name: sprites
           addr_width: 21
           data_width: 64
-          cache_size: 4kB
+          cache_size: 8kB
+    - buses:
+        - name: bg_sdram
+          addr_width: 17
+          data_width: 16
+          rw: true
     - buses:
         - name: tx_sdram
           addr_width: 17
           data_width: 16
           rw: true
-    - buses:
+          do_not_erase: true
+          offset: TX_OFFSET
         - name: audiocpu
           addr_width: 16
           data_width: 8
@@ -128,9 +135,3 @@ bram:
     data_width: 16
     rw: true
     dual_port: { name: obj_ctrl, dout: obj_ctrl_data }
-
-  - name: bg_gfxram
-    size: 128kB
-    data_width: 8
-    rw: true
-    dual_port: { name: bg_gfx, dout: bg_gfx_data }

@@ -2,7 +2,9 @@
  * SPDX-License-Identifier: GPL-3.0-or-later
  * Date: 24-10-2026 */
 
-module jtroundu_txram(
+module jtroundu_txram #(
+    parameter GFX_DW=8, INIT=0
+)(
     input             rst,
     input             clk,
     input      [16:0] cpu_addr,
@@ -13,7 +15,7 @@ module jtroundu_txram(
     output reg        cpu_ok,
     input      [16:0] gfx_addr,
     input             gfx_cs,
-    output reg  [7:0] gfx_data,
+    output reg [GFX_DW-1:0] gfx_data,
     output reg        gfx_ok,
     output reg [16:1] ram_addr,
     output reg [15:0] ram_din,
@@ -21,11 +23,18 @@ module jtroundu_txram(
     output reg        ram_cs,
     output reg        ram_we,
     output reg  [1:0] ram_dsn,
-    input             ram_ok
+    input             ram_ok,
+    output reg        initialized
 );
 
 reg owner, odd;
+reg [15:0] clear_addr;
 wire [7:0] selected = odd ? ram_data[15:8] : ram_data[7:0];
+wire [GFX_DW-1:0] selected_gfx;
+generate
+    if (GFX_DW == 16) assign selected_gfx = ram_data;
+    else assign selected_gfx = selected;
+endgenerate
 
 always @(posedge clk) begin
     if (rst) begin
@@ -41,6 +50,20 @@ always @(posedge clk) begin
         ram_dsn <= 2'b00;
         owner <= 0;
         odd <= 0;
+        clear_addr <= 0;
+        initialized <= INIT == 0;
+    end else if (!initialized) begin
+        if (!ram_cs) begin
+            ram_addr <= clear_addr;
+            ram_din <= 0;
+            ram_dsn <= 0;
+            ram_we <= 1;
+            ram_cs <= 1;
+        end else if (ram_ok) begin
+            ram_cs <= 0;
+            clear_addr <= clear_addr+1'b1;
+            if (&clear_addr) initialized <= 1;
+        end
     end else begin
         if (!cpu_cs) cpu_ok <= 0;
         if (!gfx_cs) gfx_ok <= 0;
@@ -48,7 +71,7 @@ always @(posedge clk) begin
             if (ram_ok) begin
                 ram_cs <= 0;
                 if (owner) begin
-                    gfx_data <= selected;
+                    gfx_data <= selected_gfx;
                     gfx_ok <= 1;
                 end else begin
                     cpu_dout <= selected;

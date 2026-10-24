@@ -106,9 +106,9 @@ reg [8:0] fast_rem, fast_next_rem, fast_step, fast_step_rem;
 reg [12:0] fast_span;
 reg [2:0] fast_line;
 reg [17:0] fast_addr [0:1];
-reg [31:0] fast_data [0:1];
+reg [63:0] fast_data [0:1];
 reg [1:0] fast_valid;
-reg fast_pending, fast_wait, fast_bank;
+reg fast_pending, fast_wait, fast_slot, fast_replace;
 reg [17:0] fast_request;
 wire fast_pair_hit = pair_valid && pair_addr == fast_request;
 // registered lookahead column: keeps the per-pixel DDA out of the prefetch
@@ -116,10 +116,16 @@ wire fast_pair_hit = pair_valid && pair_addr == fast_request;
 reg [19:0] r_next_col;
 reg r_next_vld;
 reg [17:0] fast_tile_addr, fast_ahead_addr;
-reg fast_tile_bank, fast_ahead_bank;
+reg fast_tile_bank;
 integer fast_delta, fast_r, fast_c, fast_tile, fast_ahead;
-wire fast_hit = fast_valid[fast_tile_bank] && fast_addr[fast_tile_bank] == fast_tile_addr;
-wire fast_ahead_hit = fast_valid[fast_ahead_bank] && fast_addr[fast_ahead_bank] == fast_ahead_addr;
+wire fast_hit0 = fast_valid[0] && fast_addr[0] == fast_tile_addr;
+wire fast_hit1 = fast_valid[1] && fast_addr[1] == fast_tile_addr;
+wire fast_hit = fast_hit0 || fast_hit1;
+wire fast_ahead_hit = (fast_valid[0] && fast_addr[0] == fast_ahead_addr) ||
+                      (fast_valid[1] && fast_addr[1] == fast_ahead_addr);
+wire [63:0] fast_word = fast_data[fast_hit1];
+wire [5:0] fast_nibble = {fast_tile_bank,d_col[2:0] ^ 3'd3,2'b00};
+wire fast_free_slot = !fast_valid[0] ? 1'b0 : !fast_valid[1] ? 1'b1 : fast_replace;
 reg [319:0] covmap, shaded;
 reg [8:0] cover_cnt;
 wire line_full = cover_cnt == 9'd320;
@@ -176,6 +182,11 @@ function [17:0] graphics_addr;
         graphics_addr = {physical[14:0],line};
     end
 endfunction
+
+wire [17:0] fast_start_tile = last_base + {1'b0,fast_col[19:3]};
+wire [17:0] fast_start_addr = graphics_addr(fast_start_tile,fast_line);
+wire fast_start_hit = (fast_valid[0] && fast_addr[0] == fast_start_addr) ||
+                      (fast_valid[1] && fast_addr[1] == fast_start_addr);
 
 reg [19:0] jump_col;
 reg [8:0] jump_rem;
@@ -254,14 +265,16 @@ always @* begin
     fast_tile = {14'd0,d_base} + ({12'd0,d_col} >> 3);
     fast_tile_bank = fast_tile[0];
     fast_tile_addr = graphics_addr(fast_tile[17:0],d_line);
-    fast_ahead = d_flip ? ({12'd0,d_col} & -8) - 8 : ({12'd0,d_col} & -8) + 8;
+    fast_ahead = d_flip ? ({12'd0,d_col} & -8) - (fast_tile_bank ? 16 : 8) :
+                         ({12'd0,d_col} & -8) + (fast_tile_bank ? 8 : 16);
     if (d_scale < 16) fast_ahead = {12'd0,r_next_col};
     if (d_repeat) begin
         if (fast_ahead < 0) fast_ahead = fast_ahead + {19'd0,d_span};
         else if (fast_ahead >= {19'd0,d_span}) fast_ahead = fast_ahead - {19'd0,d_span};
+        if (fast_ahead < 0) fast_ahead = fast_ahead + {19'd0,d_span};
+        else if (fast_ahead >= {19'd0,d_span}) fast_ahead = fast_ahead - {19'd0,d_span};
     end
     fast_tile = {14'd0,d_base} + (fast_ahead >> 3);
-    fast_ahead_bank = fast_tile[0];
     fast_ahead_addr = graphics_addr(fast_tile[17:0],d_line);
 end
 
@@ -434,7 +447,8 @@ always @(posedge clk) begin
         fast_valid <= 0;
         fast_pending <= 0;
         fast_wait <= 0;
-        fast_bank <= 0;
+        fast_slot <= 0;
+        fast_replace <= 0;
         fast_request <= 0;
         rom_owner <= 0;
         r_next_col <= 0;
@@ -468,14 +482,14 @@ always @(posedge clk) begin
         if (fast_pending) begin
             fast_wait <= rom_owner;
             if (fast_pair_hit) begin
-                fast_addr[fast_bank] <= fast_request;
-                fast_data[fast_bank] <= fast_bank ? pair_data[63:32] : pair_data[31:0];
-                fast_valid[fast_bank] <= 1;
+                fast_addr[fast_slot] <= fast_request;
+                fast_data[fast_slot] <= pair_data;
+                fast_valid[fast_slot] <= 1;
                 fast_pending <= 0;
             end else if (fast_wait && rom_owner && rom_ok) begin
-                fast_addr[fast_bank] <= fast_request;
-                fast_data[fast_bank] <= fast_bank ? rom_data[63:32] : rom_data[31:0];
-                fast_valid[fast_bank] <= 1;
+                fast_addr[fast_slot] <= fast_request;
+                fast_data[fast_slot] <= rom_data;
+                fast_valid[fast_slot] <= 1;
                 fast_pending <= 0;
                 pair_data <= rom_data;
                 pair_addr <= fast_request;
@@ -504,8 +518,9 @@ always @(posedge clk) begin
                         if (d_x[2:0] == 3'd7) cov_chunk <= covmap[{d_x[8:3]+5'd1,3'd0}+:8];
                     end
                 end else if (fast_hit) begin
-                    pen <= fast_data[fast_tile_bank][{d_col[2:0] ^ 3'd3,2'b00}+:4];
-                    color_valid[0] <= fast_data[fast_tile_bank][{d_col[2:0] ^ 3'd3,2'b00}+:4] != 0;
+                    fast_replace <= !fast_hit1;
+                    pen <= fast_word[fast_nibble+:4];
+                    color_valid[0] <= fast_word[fast_nibble+:4] != 0;
                     color_x0 <= d_x;
                     if (d_x == d_lastx) begin
                         dr_cnt <= 0;
@@ -515,16 +530,16 @@ always @(posedge clk) begin
                         d_col <= fast_next_col;
                         d_rem <= fast_next_rem;
                         if (d_x[2:0] == 3'd7) cov_chunk <= covmap[{d_x[8:3]+5'd1,3'd0}+:8];
-                        if (!fast_pending && r_next_vld && fast_ahead_bank != fast_tile_bank && !fast_ahead_hit
+                        if (!fast_pending && r_next_vld && fast_ahead_addr != fast_tile_addr && !fast_ahead_hit
                          && (d_repeat || (fast_ahead >= 0 && fast_ahead < {19'd0,d_span}))) begin
-                            fast_bank <= fast_ahead_bank;
+                            fast_slot <= !fast_hit1;
                             fast_request <= fast_ahead_addr;
                             fast_pending <= 1;
                             fast_wait <= 0;
                         end
                     end
                 end else if (!fast_pending) begin
-                    fast_bank <= fast_tile_bank;
+                    fast_slot <= fast_free_slot;
                     fast_request <= fast_tile_addr;
                     fast_pending <= 1;
                     fast_wait <= 0;
@@ -811,6 +826,12 @@ always @(posedge clk) begin
                 state <= FAST;
             end
             FAST: if (dr_state == DR_IDLE) begin
+                if (!fast_pending && !fast_start_hit) begin
+                    fast_slot <= fast_free_slot;
+                    fast_request <= fast_start_addr;
+                    fast_pending <= 1;
+                    fast_wait <= 0;
+                end
                 d_col <= fast_col;
                 d_rem <= fast_rem;
                 d_step <= fast_step;

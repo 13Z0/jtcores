@@ -49,6 +49,8 @@ module jtroundu_main(
     output [7:0] bg_gfxram_din,
     input [7:0] bg_gfxram_dout,
     output bg_gfxram_we,
+    output bg_gfxram_cs,
+    input bg_gfxram_ok,
     output [18:1] master_rom_addr,
     output master_rom_cs,
     input [15:0] master_rom_data,
@@ -80,7 +82,8 @@ wire sub_ram = control_reg[4:0] == 5'h18;
 wire ready = addr_valid && (!master_rom_cs || master_rom_ok)
           && (!v30_slave_rom_cs || v30_slave_rom_ok)
           && (!cs[9] || audio_ok)
-          && (!tx_gfxram_cs || tx_gfxram_ok);
+          && (!tx_gfxram_cs || tx_gfxram_ok)
+          && (!bg_gfxram_cs || bg_gfxram_ok);
 wire write_commit = wr && commit;
 
 assign control = control_reg;
@@ -113,7 +116,8 @@ assign tx_gfxram_din = cpu_dout[7:0];
 assign bg_gfxram_din = cpu_dout[7:0];
 assign tx_gfxram_cs = cs[11] && lane[0] && !control_reg[9];
 assign tx_gfxram_we = wr && tx_gfxram_cs;
-assign bg_gfxram_we = write_commit && cs[11] && lane[0] && control_reg[9];
+assign bg_gfxram_cs = cs[11] && lane[0] && control_reg[9];
+assign bg_gfxram_we = wr && bg_gfxram_cs;
 assign audio_addr = {control_reg[5],addr[15:1]};
 assign audio_din = cpu_dout[7:0];
 assign audio_sel = cs[9];

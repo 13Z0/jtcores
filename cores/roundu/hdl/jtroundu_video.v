@@ -25,6 +25,8 @@ module jtroundu_video #(
     input [15:0] bg_scroll_y,
     output [16:0] bg_gfx_addr,
     input [7:0] bg_gfx_data,
+    output bg_line_start,
+    output [8:0] bg_v,
     output [13:1] objram_addr,
     input [15:0] objram_data,
     output [8:1] obj_ctrl_addr,
@@ -52,6 +54,8 @@ module jtroundu_video #(
 );
 
 wire [8:0] h, v;
+assign bg_v = v;
+assign bg_line_start = pxl_cen && h == 0;
 wire [6:0] text_pxl;
 wire vt_lhbl, vt_lvbl, vt_hs, vt_vs;
 reg blank_sh;
